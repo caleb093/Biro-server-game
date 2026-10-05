@@ -15,8 +15,8 @@ import {
     simulateFlick,
 } from "../game/physics";
 import { BiroMatch, BiroPlayer, RoundEndReason } from "../game/types";
-import { Match, MatchEndReason } from "../models/matchSchema";
-import User from "../models/userSchema";
+import { MatchEndReason } from "../models/matchSchema";
+import { recordMatchResult } from "../services/matchResults";
 import { GameSocket, IO, MatchView, PenView, matchRoom, userRoom } from "../sockets/events";
 
 // ── Rules & timings ─────────────────────────────────────────────────────────
@@ -381,39 +381,17 @@ class MatchManager {
         this.server.in(room).socketsLeave(room);
 
         console.log(`[match] ${match.id} complete (${reason}) — ${winner ? `${winner.username} wins` : "draw"} ${match.scores.p1}-${match.scores.p2}`);
-        void this.persistResult(match, winnerSeat).catch((err) =>
-            console.error(`[match] failed to persist result for ${match.id}:`, err)
-        );
-    }
-
-    private async persistResult(match: BiroMatch, winnerSeat: Seat | null) {
-        const reason = match.endReason ?? "normal";
-        await Match.create({
+        void recordMatchResult({
             matchId: match.id,
             source: match.source,
-            players: match.players.map((p) => ({ user: p.userId, username: p.username, seat: p.seat, archetype: p.archetype })),
-            winner: winnerSeat ? match.players[winnerSeat - 1].userId : null,
-            scores: match.scores,
+            players: match.players.map((p) => ({ userId: p.userId, username: p.username, seat: p.seat, archetype: p.archetype })),
+            winnerUserId: winner?.userId ?? null,
+            scores: { ...match.scores },
             rounds: match.round,
             endReason: reason,
             startedAt: new Date(match.createdAt),
             endedAt: new Date(),
-        });
-
-        // Nobody played it out — keep the record, but leave stats alone.
-        if (reason === "abandoned") return;
-
-        await User.bulkWrite(
-            match.players.map((p) => {
-                const outcome = winnerSeat === null ? "draws" : winnerSeat === p.seat ? "wins" : "losses";
-                return {
-                    updateOne: {
-                        filter: { _id: p.userId },
-                        update: { $inc: { "stats.played": 1, [`stats.${outcome}`]: 1 } },
-                    },
-                };
-            })
-        );
+        }).catch((err) => console.error(`[match] gave up saving the result for ${match.id}:`, err));
     }
 
     // ── Connection lifecycle (called from sockets/index.ts) ─────────────────

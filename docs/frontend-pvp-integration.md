@@ -455,14 +455,56 @@ const toChallenge = (c: ChallengeView): Challenge & { online: boolean } => ({
 | `RATE_LIMITED` | more than 30 calls of one event in 5 s |
 | `INTERNAL_ERROR` | server bug: show a generic error |
 
-## 10. Not available yet (don't build UI that depends on these)
+## 10. Leaderboard (REST — wire up the 🏆 Leaderboard button)
 
-- Leaderboard: no endpoint yet. The Leaderboard button has no data source; only the current user's own `stats` come from `/api/auth/me`.
+Ranked by **wins** (online PvP only). Players with equal wins **share a rank** (1, 2, 2, 4), and within a tie fewer losses are listed first. Only players with at least one win appear.
+
+| Endpoint | Auth | Response |
+|---|---|---|
+| `GET /api/leaderboard?limit=50&offset=0` | none (public) | `LeaderboardPage` |
+| `GET /api/leaderboard/me` | `Bearer` token | `MyStanding` — your rank even if you're not on the page shown |
+
+```ts
+interface LeaderboardEntry {
+    rank: number;
+    userId: string;
+    username: string;
+    wins: number;
+    losses: number;
+    draws: number;
+    played: number;
+}
+interface LeaderboardPage {
+    entries: LeaderboardEntry[];
+    total: number;        // players on the board
+    limit: number;
+    offset: number;
+    generatedAt: string;  // ISO time the data was read
+}
+interface MyStanding {
+    userId: string;
+    username: string;
+    rank: number | null;  // null = no wins yet (not on the board)
+    total: number;
+    wins: number;
+    losses: number;
+    draws: number;
+    played: number;
+}
+```
+
+- `limit` must be 1–100 (default 50) and `offset` 0–10000 (default 0); anything else → `400`.
+- Paginate with `offset += limit` while `offset < total`. Highlight the row whose `userId` is the logged-in user. If they're not on the current page, show the `/me` standing pinned at the bottom ("You · #37 · 12 wins"), or "Win a match to get ranked" when `rank` is `null`.
+- Win rate, if you want it, is `wins / played`, computed on the client.
+- The data is cached briefly on the server: a finished match shows up within about 2 seconds, otherwise pages refresh every 30 seconds. Refetch when the modal opens; there is no socket push for the leaderboard.
+
+## 11. Not available yet (don't build UI that depends on these)
+
 - Power-ups in online matches.
 - Rematch with the same opponent ("Play Again" just re-queues).
 - Spectating, or seeing the opponent's aim line before they flick.
 
-## 11. Done checklist
+## 12. Done checklist
 
 - [ ] Register/login screens; token persisted; socket connects with the token; logout disconnects it.
 - [ ] Clock offset via `ping_check`; every countdown uses `serverNow()`.
@@ -473,4 +515,5 @@ const toChallenge = (c: ChallengeView): Challenge & { online: boolean } => ({
 - [ ] Exit = forfeit with confirmation; Play Again re-queues.
 - [ ] Reload mid-match restores the game via `biro_resume` / `biro_get_state`.
 - [ ] Challenges: send UI, live list from `challenge_list`, accept/reject/cancel, live events + badge.
+- [ ] Leaderboard modal: paginated `GET /api/leaderboard`, own row highlighted, `/me` standing pinned.
 - [ ] `ai` and local `pvp` modes still work unchanged.

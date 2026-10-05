@@ -5,6 +5,7 @@ import cors from "cors";
 import { Server } from "socket.io";
 import connectDB from "./config/db";
 import authRoutes from "./routes/authRoutes";
+import leaderboardRoutes from "./routes/leaderboardRoutes";
 import { notFound, errorHandler } from "./middleware/errorMiddleware";
 import { initSockets } from "./sockets";
 import { IO } from "./sockets/events";
@@ -19,6 +20,7 @@ app.get("/", (_req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/leaderboard", leaderboardRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

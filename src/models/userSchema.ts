@@ -12,6 +12,7 @@ export interface IUser {
     usernameLower: string;  // unique key — usernames are case-insensitive
     passwordHash: string;   // scrypt hash, never selected by default
     stats: IUserStats;      // online PvP results only
+    appliedMatchIds: string[]; // last few match ids already counted in stats (makes result writes retry-safe)
     createdAt: Date;
     updatedAt: Date;
 }
@@ -37,9 +38,20 @@ const userSchema = new Schema<IUser>(
         usernameLower: { type: String, required: true, unique: true },
         passwordHash: { type: String, required: true, select: false },
         stats: { type: statsSchema, default: () => ({}) },
+        appliedMatchIds: { type: [String], select: false, default: undefined },
     },
     { timestamps: true }
 );
+
+// Leaderboard: rank by wins (ties broken by fewer losses, then a stable _id).
+// Partial — only players with at least one win are on the board, so the index
+// stays small however many accounts exist. Queries must include
+// `stats.wins > 0` (or a stricter bound) to use it.
+export const LEADERBOARD_SORT = { "stats.wins": -1, "stats.losses": 1, _id: 1 } as const;
+userSchema.index(LEADERBOARD_SORT, {
+    name: "leaderboard",
+    partialFilterExpression: { "stats.wins": { $gt: 0 } },
+});
 
 // Keep the lookup key in sync with the display name.
 userSchema.pre("validate", function () {
