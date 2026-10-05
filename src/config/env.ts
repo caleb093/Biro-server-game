@@ -18,7 +18,8 @@ export const env = {
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || "7d",
     // How many proxies sit in front of the server (Render: 1). Express needs it to
     // read the player's real IP for rate limiting; 0 = none (local development).
-    trustProxy: Number(process.env.TRUST_PROXY ?? (isProduction ? 1 : 0)) || 0,
+    // Render sets RENDER=true on every service, so it doesn't hinge on NODE_ENV.
+    trustProxy: Number(process.env.TRUST_PROXY ?? (isProduction || process.env.RENDER ? 1 : 0)) || 0,
     // Comma-separated list of allowed frontend origins (REST + socket.io CORS).
     clientOrigins: (process.env.CLIENT_ORIGIN || "http://localhost:3000").split(",").map((o) => o.trim()),
 };
