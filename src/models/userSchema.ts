@@ -11,6 +11,7 @@ export interface IUser {
     username: string;       // display casing, as the player typed it
     usernameLower: string;  // unique key — usernames are case-insensitive
     passwordHash: string;   // scrypt hash, never selected by default
+    email?: string;         // optional, for password resets — private, never sent to clients
     stats: IUserStats;      // online PvP results only
     appliedMatchIds: string[]; // last few match ids already counted in stats (makes result writes retry-safe)
     createdAt: Date;
@@ -18,6 +19,9 @@ export interface IUser {
 }
 
 export type UserDocument = HydratedDocument<IUser>;
+
+// Deliberately loose: one @, no spaces, a dot in the domain. Real validation is the reset email arriving.
+export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // 3–20 chars, letters / digits / underscore.
 export const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,20}$/;
@@ -37,6 +41,7 @@ const userSchema = new Schema<IUser>(
         username: { type: String, required: true, trim: true, match: USERNAME_REGEX },
         usernameLower: { type: String, required: true, unique: true },
         passwordHash: { type: String, required: true, select: false },
+        email: { type: String, trim: true, lowercase: true, maxlength: 254, select: false },
         stats: { type: statsSchema, default: () => ({}) },
         appliedMatchIds: { type: [String], select: false, default: undefined },
     },
@@ -52,6 +57,13 @@ userSchema.index(LEADERBOARD_SORT, {
     name: "leaderboard",
     partialFilterExpression: { "stats.wins": { $gt: 0 } },
 });
+
+// One account per email, so a password reset always finds exactly one account.
+// Partial — accounts without an email don't take part, however many there are.
+userSchema.index(
+    { email: 1 },
+    { name: "email_unique", unique: true, partialFilterExpression: { email: { $type: "string" } } }
+);
 
 // Keep the lookup key in sync with the display name.
 userSchema.pre("validate", function () {
