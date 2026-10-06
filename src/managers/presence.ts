@@ -33,3 +33,8 @@ export function removeSocket(userId: string, socketId: string): boolean {
 export function isOnline(userId: string): boolean {
     return socketsByUser.has(userId);
 }
+
+/** Users with at least one connected socket. */
+export function onlineCount(): number {
+    return socketsByUser.size;
+}

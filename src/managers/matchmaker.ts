@@ -31,6 +31,10 @@ class Matchmaker {
     isQueued(userId: string): boolean {
         return this.queue.has(userId);
     }
+
+    get size(): number {
+        return this.queue.size;
+    }
 }
 
 export const matchmaker = new Matchmaker();

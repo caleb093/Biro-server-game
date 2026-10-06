@@ -6,6 +6,7 @@ import { Server } from "socket.io";
 import connectDB from "./config/db";
 import authRoutes from "./routes/authRoutes";
 import leaderboardRoutes from "./routes/leaderboardRoutes";
+import statsRoutes from "./routes/statsRoutes";
 import { notFound, errorHandler } from "./middleware/errorMiddleware";
 import { initSockets } from "./sockets";
 import { IO } from "./sockets/events";
@@ -30,6 +31,7 @@ app.get("/api/ip", (req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
+app.use("/api/stats", statsRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

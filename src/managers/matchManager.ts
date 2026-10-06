@@ -78,6 +78,11 @@ class MatchManager {
         return this.matchIdByUser.has(userId);
     }
 
+    // Live matches (finished ones are removed from memory straight away).
+    get activeCount(): number {
+        return this.matches.size;
+    }
+
     private playerOf(match: BiroMatch, userId: string): BiroPlayer | undefined {
         return match.players.find((p) => p.userId === userId);
     }
