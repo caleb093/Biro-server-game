@@ -7,10 +7,12 @@ import { isArchetypeId } from "../game/archetypes";
 import { isOnline } from "../managers/presence";
 import { matchManager } from "../managers/matchManager";
 import { matchmaker } from "../managers/matchmaker";
+import { challengeHolds } from "../managers/challengeHolds";
 
 // Direct challenges: "@Khadijat, best of 3 — loser buys puff-puff".
 // Stored in MongoDB so they wait for an offline player; accepting needs the
-// challenger to be online, since a match starts immediately.
+// challenger to be online. If they're mid-match the accept "holds" instead of
+// failing, and the match starts when theirs ends (see managers/challengeHolds.ts).
 
 const MAX_OUTGOING_CHALLENGES = 10;
 
@@ -26,6 +28,7 @@ function toChallengeView(c: ChallengeLike): ChallengeView {
         message: c.message,
         createdAt: c.createdAt.toISOString(),
         expiresAt: c.expiresAt.toISOString(),
+        hold: challengeHolds.holdView(c._id.toString()),
     };
 }
 
@@ -94,9 +97,12 @@ export const registerChallengeHandlers = (io: IO, socket: GameSocket) => {
     on(socket, "challenge_decline", async (payload) => {
         const challengeId = readChallengeId(payload);
         if (!challengeId) return fail("INVALID_CHALLENGE_ID");
+        // Waiting on a busy challenger is fine to back out of — until the countdown runs.
+        if (challengeHolds.isStarting(challengeId)) return fail("CHALLENGE_STARTING");
 
         const doc = await Challenge.findOneAndDelete({ _id: challengeId, to: userId });
         if (!doc) return fail("CHALLENGE_NOT_FOUND");
+        challengeHolds.remove(challengeId);
 
         io.to(userRoom(doc.from.toString())).emit("challenge_declined", { challengeId, by: username });
         return ok();
@@ -108,6 +114,7 @@ export const registerChallengeHandlers = (io: IO, socket: GameSocket) => {
 
         const doc = await Challenge.findOneAndDelete({ _id: challengeId, from: userId });
         if (!doc) return fail("CHALLENGE_NOT_FOUND");
+        challengeHolds.remove(challengeId);
 
         io.to(userRoom(doc.to.toString())).emit("challenge_cancelled", { challengeId });
         return ok();
@@ -123,12 +130,20 @@ export const registerChallengeHandlers = (io: IO, socket: GameSocket) => {
 
         const blocker = () =>
             matchManager.isInMatch(userId) ? "ALREADY_IN_MATCH"
+            : challengeHolds.isReserved(userId) ? "ALREADY_WAITING"
             : !isOnline(challengerId) ? "CHALLENGER_OFFLINE"
-            : matchManager.isInMatch(challengerId) ? "CHALLENGER_BUSY"
+            : challengeHolds.isReserved(challengerId) ? "CHALLENGER_BUSY"
+            : matchManager.isInMatch(challengerId) ? "CHALLENGER_IN_MATCH"
             : null;
 
         // Check first so a failed accept leaves the challenge in place.
         const early = blocker();
+        if (early === "CHALLENGER_IN_MATCH") {
+            // Hold: the challenge stays put and the match starts when theirs ends.
+            matchmaker.leave(userId);
+            challengeHolds.create(challengeId, { userId: challengerId, username: challenge.fromUsername }, { userId, username }, challenge.archetype);
+            return ok({ matchId: null, waiting: true });
+        }
         if (early) return fail(early);
 
         // Claim it atomically — a double click or a second tab can't accept twice.
@@ -138,8 +153,9 @@ export const registerChallengeHandlers = (io: IO, socket: GameSocket) => {
         // Things may have changed during the await; if so, put the challenge back.
         const late = blocker();
         if (late) {
+            // (A challenger who just entered a match: plain busy — the accept can be retried.)
             await Challenge.create(claimed.toObject()).catch(() => {});
-            return fail(late);
+            return fail(late === "CHALLENGER_IN_MATCH" ? "CHALLENGER_BUSY" : late);
         }
 
         matchmaker.leave(userId);

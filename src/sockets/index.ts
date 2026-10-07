@@ -7,9 +7,11 @@ import User from "../models/userSchema";
 import { addSocket, removeSocket } from "../managers/presence";
 import { matchManager } from "../managers/matchManager";
 import { matchmaker } from "../managers/matchmaker";
+import { challengeHolds } from "../managers/challengeHolds";
 
 export const initSockets = (io: IO) => {
     matchManager.init(io);
+    challengeHolds.init(io);
 
     // Authenticate every connection with the same JWT the REST API issues:
     //   io(URL, { auth: { token } })
@@ -58,6 +60,7 @@ export const initSockets = (io: IO) => {
             console.log(`❌ ${username} offline`);
             matchmaker.leave(userId);
             matchManager.handleDisconnect(userId);
+            challengeHolds.handleOffline(userId);
         });
     });
 };

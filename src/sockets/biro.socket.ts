@@ -2,6 +2,7 @@ import { GameSocket } from "./events";
 import { on, ok, fail, toAck, isObject, isNonEmptyString, isVec2 } from "./handler";
 import { matchManager } from "../managers/matchManager";
 import { matchmaker } from "../managers/matchmaker";
+import { challengeHolds } from "../managers/challengeHolds";
 import { isArchetypeId } from "../game/archetypes";
 
 // Biro matchmaking + gameplay events. Handlers only validate the payload shape
@@ -12,6 +13,8 @@ export const registerBiroHandlers = (socket: GameSocket) => {
     const { id: userId, username } = socket.data.user;
 
     on(socket, "biro_find_match", () => {
+        // Waiting on (or for) a held challenge — that match starts on its own.
+        if (challengeHolds.isReserved(userId)) return fail("WAITING_FOR_CHALLENGE");
         const r = matchmaker.join({ userId, username });
         if (!r.ok) return fail(r.error);
         // When paired, biro_match_found is emitted to both players.
