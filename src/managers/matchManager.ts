@@ -57,9 +57,15 @@ class MatchManager {
     private io: IO | null = null;
     private matches = new Map<string, BiroMatch>();
     private matchIdByUser = new Map<string, string>();
+    private completedListeners: ((match: BiroMatch) => void)[] = [];
 
     init(io: IO) {
         this.io = io;
+    }
+
+    // Called after a match ends and its players are free again (e.g. challenge holds).
+    onCompleted(listener: (match: BiroMatch) => void) {
+        this.completedListeners.push(listener);
     }
 
     private get server(): IO {
@@ -76,6 +82,11 @@ class MatchManager {
 
     isInMatch(userId: string): boolean {
         return this.matchIdByUser.has(userId);
+    }
+
+    // Live matches (finished ones are removed from memory straight away).
+    get activeCount(): number {
+        return this.matches.size;
     }
 
     private playerOf(match: BiroMatch, userId: string): BiroPlayer | undefined {
@@ -392,6 +403,14 @@ class MatchManager {
             startedAt: new Date(match.createdAt),
             endedAt: new Date(),
         }).catch((err) => console.error(`[match] gave up saving the result for ${match.id}:`, err));
+
+        for (const listener of this.completedListeners) {
+            try {
+                listener(match);
+            } catch (err) {
+                console.error(`[match] completion listener failed for ${match.id}:`, err);
+            }
+        }
     }
 
     // ── Connection lifecycle (called from sockets/index.ts) ─────────────────

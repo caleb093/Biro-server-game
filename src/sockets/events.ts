@@ -3,6 +3,7 @@ import { ArchetypeId } from "../game/archetypes";
 import { Seat, Vec2 } from "../game/physics";
 import { BiroPhase, RoundEndReason } from "../game/types";
 import { MatchEndReason } from "../models/matchSchema";
+import type { HoldEndReason } from "../managers/challengeHolds";
 
 // The socket protocol in one place. Copy these types to the frontend.
 //
@@ -25,7 +26,7 @@ export interface ClientPayloads {
     // Challenges
     challenge_send: { username: string; archetype: ArchetypeId; message?: string }; // ack: { challenge }
     challenge_list: void;                                         // ack: { incoming: ChallengeView[], outgoing: ChallengeView[] }
-    challenge_accept: { challengeId: string };                    // ack: { matchId }
+    challenge_accept: { challengeId: string };                    // ack: { matchId } — or { matchId: null, waiting: true } when held
     challenge_decline: { challengeId: string };
     challenge_cancel: { challengeId: string };
 }
@@ -82,6 +83,9 @@ export interface ChallengeView {
     message: string;
     createdAt: string;
     expiresAt: string;
+    // Accepted while the challenger was mid-match: the challengee is waiting for it
+    // to end. startsAt is set once the pre-match countdown runs (epoch ms).
+    hold: { startsAt: number | null } | null;
 }
 
 export interface ServerToClientEvents {
@@ -124,6 +128,8 @@ export interface ServerToClientEvents {
     challenge_received: (data: ChallengeView) => void;
     challenge_declined: (data: { challengeId: string; by: string }) => void;
     challenge_cancelled: (data: { challengeId: string }) => void;
+    challenge_hold: (data: { challengeId: string; startsAt: number | null }) => void;   // to both players
+    challenge_hold_ended: (data: { challengeId: string; reason: HoldEndReason }) => void; // challenge is pending again (unless "gone")
 }
 
 export interface SocketData {

@@ -195,6 +195,7 @@ export interface ChallengeView {
     message: string;
     createdAt: string;             // ISO
     expiresAt: string;             // ISO (24 h after sending)
+    hold: { startsAt: number | null } | null; // accepted while the challenger was mid-match (see §8); startsAt = countdown end, server ms
 }
 
 export interface ClientToServerEvents {
@@ -209,7 +210,7 @@ export interface ClientToServerEvents {
 
     challenge_send: (payload: { username: string; archetype: ArchetypeId; message?: string }, ack: Ack<{ challenge: ChallengeView }>) => void;
     challenge_list: (payload: null, ack: Ack<{ incoming: ChallengeView[]; outgoing: ChallengeView[] }>) => void;
-    challenge_accept: (payload: { challengeId: string }, ack: Ack<{ matchId: string }>) => void;
+    challenge_accept: (payload: { challengeId: string }, ack: Ack<{ matchId: string | null; waiting?: boolean }>) => void;
     challenge_decline: (payload: { challengeId: string }, ack: Ack) => void;
     challenge_cancel: (payload: { challengeId: string }, ack: Ack) => void;
 }
@@ -254,6 +255,8 @@ export interface ServerToClientEvents {
     challenge_received: (data: ChallengeView) => void;
     challenge_declined: (data: { challengeId: string; by: string }) => void; // by = username who declined
     challenge_cancelled: (data: { challengeId: string }) => void;
+    challenge_hold: (data: { challengeId: string; startsAt: number | null }) => void;  // to both players
+    challenge_hold_ended: (data: { challengeId: string; reason: "challenger_offline" | "challengee_offline" | "gone" }) => void;
 }
 ```
 
@@ -430,8 +433,16 @@ const toChallenge = (c: ChallengeView): Challenge & { online: boolean } => ({
 **Accept / reject.**
 - Accept → `challenge_accept { challengeId }` → `{ matchId }`, and `biro_match_found` arrives for both players → setup screen (the challenger is already ready).
   - `CHALLENGER_OFFLINE` → "<name> isn't online right now". The challenge stays, so they can try later. Consider disabling Accept when `online` is false.
-  - `CHALLENGER_BUSY` → they're in another match. `ALREADY_IN_MATCH` → you are. `CHALLENGE_NOT_FOUND` → expired or cancelled: remove it from the list.
+  - `CHALLENGER_BUSY` → someone else is already waiting on them (see below). `ALREADY_IN_MATCH` → you are in a match. `ALREADY_WAITING` → you're already waiting on a held challenge. `CHALLENGE_NOT_FOUND` → expired or cancelled: remove it from the list.
 - Reject → `challenge_decline { challengeId }`.
+
+**Held accepts (challenger mid-match).** Accepting while the challenger is in another match doesn't fail. It **holds**:
+- The ack is `{ matchId: null, waiting: true }`, and `challenge_hold { challengeId, startsAt: null }` goes to both players. The challenge stays in the lists with `hold` set. Show the challengee a blocking "please hold" screen with a Decline button.
+- While holding, both players are reserved: `biro_find_match` → `WAITING_FOR_CHALLENGE`, other accepts → `ALREADY_WAITING`, and a second accept of the same challenger's challenges → `CHALLENGER_BUSY`. Only one player can wait per challenger.
+- The challengee can back out with `challenge_decline`. It works like a normal decline: the challenge is deleted and the challenger gets `challenge_declined` (best shown after their match).
+- When the challenger's match ends, `challenge_hold { challengeId, startsAt }` goes to both: show a countdown to `startsAt` (server clock). Declining now → `CHALLENGE_STARTING`. At `startsAt` the server starts the match and `biro_match_found` arrives for both, with the challenger already ready.
+- `challenge_hold_ended { challengeId, reason }` → the hold fell through (someone went offline, or the challenge is `gone`). Clear `hold`; the challenge is pending again, unless the reason is `gone`.
+- Holds live in server memory: after a server restart `challenge_list` returns `hold: null` and the challenge is plain pending again.
 
 **Live events** (listen globally to drive a badge on the Challenges button):
 - `challenge_received` → add to incoming + badge/toast.
@@ -451,7 +462,8 @@ const toChallenge = (c: ChallengeView): Challenge & { online: boolean } => ({
 | `FLICK_TOO_SMALL` | drag < 6 world units |
 | `NO_BOARD` | no pens yet |
 | `USER_NOT_FOUND`, `CANNOT_CHALLENGE_SELF`, `CHALLENGE_ALREADY_PENDING`, `TOO_MANY_CHALLENGES`, `MESSAGE_TOO_LONG` | challenge send |
-| `CHALLENGE_NOT_FOUND`, `CHALLENGER_OFFLINE`, `CHALLENGER_BUSY` | challenge accept/decline/cancel |
+| `CHALLENGE_NOT_FOUND`, `CHALLENGER_OFFLINE`, `CHALLENGER_BUSY`, `ALREADY_WAITING`, `CHALLENGE_STARTING` | challenge accept/decline/cancel |
+| `WAITING_FOR_CHALLENGE` | `biro_find_match` while waiting on a held challenge |
 | `RATE_LIMITED` | more than 30 calls of one event in 5 s |
 | `INTERNAL_ERROR` | server bug: show a generic error |
 
