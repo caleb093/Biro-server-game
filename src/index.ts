@@ -23,6 +23,13 @@ app.get("/", (_req, res) => {
     res.json({ message: "Biro Game server is running" });
 });
 
+// Lightweight liveness check for uptime pingers (UptimeRobot, cron-job.org, Render health checks).
+app.get("/healthz", (_req, res) => {
+    res.status(200).json({
+        status: "ok"
+    });
+});
+
 // The caller's IP as the server sees it — for checking TRUST_PROXY after a deploy.
 // It should match what https://api.ipify.org shows for the same device.
 app.get("/api/ip", (req, res) => {
